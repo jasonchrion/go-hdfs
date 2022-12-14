@@ -1,14 +1,23 @@
 package hdfs
 
 import (
-	"io"
+	"errors"
 	"os"
 	"time"
 
 	hdfs "github.com/colinmarc/hdfs/v2/internal/protocol/hadoop_hdfs"
 	"github.com/colinmarc/hdfs/v2/internal/transfer"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
+
+var ErrReplicating = errors.New("replication in progress")
+
+// IsErrReplicating returns true if the passed error is an os.PathError wrapping
+// ErrReplicating.
+func IsErrReplicating(err error) bool {
+	pe, ok := err.(*os.PathError)
+	return ok && pe.Err == ErrReplicating
+}
 
 // A FileWriter represents a writer for an open file in HDFS. It implements
 // Writer and Closer, and can only be used for writes. For reads, see
@@ -18,10 +27,10 @@ type FileWriter struct {
 	name        string
 	replication int
 	blockSize   int64
+	fileId      *uint64
 
 	blockWriter *transfer.BlockWriter
 	deadline    time.Time
-	closed      bool
 }
 
 // Create opens a new file in HDFS with the default replication, block size,
@@ -74,6 +83,7 @@ func (c *Client) CreateFile(name string, replication int, blockSize int64, perm 
 		name:        name,
 		replication: replication,
 		blockSize:   blockSize,
+		fileId:      createResp.Fs.FileId,
 	}, nil
 }
 
@@ -103,6 +113,7 @@ func (c *Client) Append(name string) (*FileWriter, error) {
 		name:        name,
 		replication: int(appendResp.Stat.GetBlockReplication()),
 		blockSize:   int64(appendResp.Stat.GetBlocksize()),
+		fileId:      appendResp.Stat.FileId,
 	}
 
 	// This returns nil if there are no blocks (it's an empty file) or if the
@@ -168,10 +179,6 @@ func (f *FileWriter) SetDeadline(t time.Time) error {
 // of this, it is important that Close is called after all data has been
 // written.
 func (f *FileWriter) Write(b []byte) (int, error) {
-	if f.closed {
-		return 0, io.ErrClosedPipe
-	}
-
 	if f.blockWriter == nil {
 		err := f.startNewBlock()
 		if err != nil {
@@ -199,10 +206,6 @@ func (f *FileWriter) Write(b []byte) (int, error) {
 // a call to Flush, it is still necessary to call Close once all data has been
 // written.
 func (f *FileWriter) Flush() error {
-	if f.closed {
-		return io.ErrClosedPipe
-	}
-
 	if f.blockWriter != nil {
 		return f.blockWriter.Flush()
 	}
@@ -213,11 +216,15 @@ func (f *FileWriter) Flush() error {
 // Close closes the file, writing any remaining data out to disk and waiting
 // for acknowledgements from the datanodes. It is important that Close is called
 // after all data has been written.
+//
+// If the datanodes have acknowledged all writes but not yet to the namenode,
+// it can return ErrReplicating (wrapped in an os.PathError). This indicates
+// that all data has been written, but the lease is still open for the file.
+// It is safe in this case to either ignore the error (and let the lease expire
+// on its own) or to call Close multiple times until it completes without an
+// error. The Java client, for context, always chooses to retry, with
+// exponential backoff.
 func (f *FileWriter) Close() error {
-	if f.closed {
-		return io.ErrClosedPipe
-	}
-
 	var lastBlock *hdfs.ExtendedBlockProto
 	if f.blockWriter != nil {
 		lastBlock = f.blockWriter.Block.GetB()
@@ -233,12 +240,15 @@ func (f *FileWriter) Close() error {
 		Src:        proto.String(f.name),
 		ClientName: proto.String(f.client.namenode.ClientName),
 		Last:       lastBlock,
+		FileId:     f.fileId,
 	}
 	completeResp := &hdfs.CompleteResponseProto{}
 
 	err := f.client.namenode.Execute("complete", completeReq, completeResp)
 	if err != nil {
 		return &os.PathError{"create", f.name, err}
+	} else if completeResp.GetResult() == false {
+		return &os.PathError{"create", f.name, ErrReplicating}
 	}
 
 	return nil
@@ -261,6 +271,7 @@ func (f *FileWriter) startNewBlock() error {
 		Src:        proto.String(f.name),
 		ClientName: proto.String(f.client.namenode.ClientName),
 		Previous:   previous,
+		FileId:     f.fileId,
 	}
 	addBlockResp := &hdfs.AddBlockResponseProto{}
 

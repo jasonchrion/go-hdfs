@@ -1,7 +1,9 @@
+<img src="docs/gopher.png" alt="gopher" align="right" width="200"/>
+
 HDFS for Go
 ===========
 
-[![GoDoc](https://godoc.org/github.com/colinmarc/hdfs/web?status.svg)](https://godoc.org/github.com/colinmarc/hdfs) [![build](https://travis-ci.org/colinmarc/hdfs.svg?branch=master)](https://travis-ci.org/colinmarc/hdfs)
+[![GoDoc](https://godoc.org/github.com/colinmarc/hdfs/web?status.svg)](https://godoc.org/github.com/colinmarc/hdfs/v2) [![build](https://github.com/colinmarc/hdfs/actions/workflows/tests.yml/badge.svg?branch=master)](https://github.com/colinmarc/hdfs/actions/workflows/tests.yml)
 
 This is a native golang client for hdfs. It connects directly to the namenode using
 the protocol buffers API.
@@ -111,8 +113,7 @@ Compatibility
 -------------
 
 This library uses "Version 9" of the HDFS protocol, which means it should work
-with hadoop distributions based on 2.2.x and above. The tests run against CDH
-5.x and HDP 2.x.
+with hadoop distributions based on 2.2.x and above, as well as 3.x.
 
 Acknowledgements
 ----------------

@@ -57,8 +57,8 @@ type ClientOptions struct {
 	// Addresses specifies the namenode(s) to connect to.
 	Addresses []string
 	// User specifies which HDFS user the client will act as. It is required
-	// unless kerberos authentication is enabled, in which case it will be
-	// determined from the provided credentials if empty.
+	// unless kerberos authentication is enabled, in which case it is overridden
+	// by the username set in KerberosClient.
 	User string
 	// UseDatanodeHostname specifies whether the client should connect to the
 	// datanodes via hostname (which is useful in multi-homed setups) or IP
@@ -91,6 +91,12 @@ type ClientOptions struct {
 	// has dfs.encrypt.data.transfer enabled, this setting is ignored and
 	// a level of "privacy" is used.
 	DataTransferProtection string
+	// skipSaslForPrivilegedDatanodePorts implements a strange edge case present
+	// in the official java client. If data.transfer.protection is set but not
+	// dfs.encrypt.data.transfer, and the datanode is running on a privileged
+	// port, the client connects without doing a SASL handshake. This field is
+	// only set by ClientOptionsFromConf.
+	skipSaslForPrivilegedDatanodePorts bool
 }
 
 // ClientOptionsFromConf attempts to load any relevant configuration options
@@ -163,6 +169,9 @@ func ClientOptionsFromConf(conf hadoopconf.HadoopConf) ClientOptions {
 
 	if strings.ToLower(conf["dfs.encrypt.data.transfer"]) == "true" {
 		options.DataTransferProtection = "privacy"
+	} else {
+		// See the comment for this property above.
+		options.skipSaslForPrivilegedDatanodePorts = true
 	}
 
 	return options
@@ -298,23 +307,6 @@ func (c *Client) CopyToRemote(src string, dst string) error {
 	return remote.Close()
 }
 
-func (c *Client) fetchDefaults() (*hdfs.FsServerDefaultsProto, error) {
-	if c.defaults != nil {
-		return c.defaults, nil
-	}
-
-	req := &hdfs.GetServerDefaultsRequestProto{}
-	resp := &hdfs.GetServerDefaultsResponseProto{}
-
-	err := c.namenode.Execute("getServerDefaults", req, resp)
-	if err != nil {
-		return nil, err
-	}
-
-	c.defaults = resp.GetServerDefaults()
-	return c.defaults, nil
-}
-
 func (c *Client) fetchDataEncryptionKey() (*hdfs.DataEncryptionKeyProto, error) {
 	if c.encryptionKey != nil {
 		return c.encryptionKey, nil
@@ -352,10 +344,11 @@ func (c *Client) wrapDatanodeDial(dc dialContext, token *hadoop.TokenProto) (dia
 		}
 
 		return (&transfer.SaslDialer{
-			DialFunc:   dc,
-			Key:        key,
-			Token:      token,
-			EnforceQop: c.options.DataTransferProtection,
+			DialFunc:                  dc,
+			Key:                       key,
+			Token:                     token,
+			EnforceQop:                c.options.DataTransferProtection,
+			SkipSaslOnPrivilegedPorts: c.options.skipSaslForPrivilegedDatanodePorts,
 		}).DialContext, nil
 	}
 

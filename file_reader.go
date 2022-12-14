@@ -10,7 +10,7 @@ import (
 
 	hdfs "github.com/colinmarc/hdfs/v2/internal/protocol/hadoop_hdfs"
 	"github.com/colinmarc/hdfs/v2/internal/transfer"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 // A FileReader represents an existing file or directory in HDFS. It implements
@@ -141,13 +141,14 @@ func (f *FileReader) Seek(offset int64, whence int) (int64, error) {
 	}
 
 	var off int64
-	if whence == 0 {
+	switch whence {
+	case io.SeekStart:
 		off = offset
-	} else if whence == 1 {
+	case io.SeekCurrent:
 		off = f.offset + offset
-	} else if whence == 2 {
+	case io.SeekEnd:
 		off = f.info.Size() + offset
-	} else {
+	default:
 		return f.offset, fmt.Errorf("invalid whence: %d", whence)
 	}
 
@@ -157,11 +158,23 @@ func (f *FileReader) Seek(offset int64, whence int) (int64, error) {
 
 	if f.offset != off {
 		f.offset = off
+
 		if f.blockReader != nil {
+			// If the seek is within the next few chunks, it's much more
+			// efficient to throw away a few bytes than to reconnect and start
+			// a read at the new offset.
+			err := f.blockReader.Skip(f.offset - f.blockReader.Offset)
+			if err == nil {
+				return f.offset, nil
+			}
+
+			// It isn't possible to seek within the current block, so reset such
+			// that we can connect to the new block.
 			f.blockReader.Close()
 			f.blockReader = nil
 		}
 	}
+
 	return f.offset, nil
 }
 

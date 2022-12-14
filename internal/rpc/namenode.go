@@ -10,8 +10,8 @@ import (
 
 	hadoop "github.com/colinmarc/hdfs/v2/internal/protocol/hadoop_common"
 	hdfs "github.com/colinmarc/hdfs/v2/internal/protocol/hadoop_hdfs"
-	"github.com/golang/protobuf/proto"
 	krb "github.com/jcmturner/gokrb5/v8/client"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -58,8 +58,8 @@ type NamenodeConnectionOptions struct {
 	// Addresses specifies the namenode(s) to connect to.
 	Addresses []string
 	// User specifies which HDFS user the client will act as. It is required
-	// unless kerberos authentication is enabled, in which case it will be
-	// determined from the provided credentials if empty.
+	// unless kerberos authentication is enabled, in which case it is overridden
+	// by the username set in KerberosClient.
 	User string
 	// DialFunc is used to connect to the namenodes. If nil, then
 	// (&net.Dialer{}).DialContext is used.
@@ -94,14 +94,12 @@ func NewNamenodeConnection(options NamenodeConnectionOptions) (*NamenodeConnecti
 
 	var user, realm string
 	user = options.User
-	if user == "" {
-		if options.KerberosClient != nil {
-			creds := options.KerberosClient.Credentials
-			user = creds.UserName()
-			realm = creds.Realm()
-		} else {
-			return nil, errors.New("user not specified")
-		}
+	if options.KerberosClient != nil {
+		creds := options.KerberosClient.Credentials
+		user = creds.UserName()
+		realm = creds.Realm()
+	} else if user == "" {
+		return nil, errors.New("user not specified")
 	}
 
 	// The ClientID is reused here both in the RPC headers (which requires a
@@ -145,7 +143,7 @@ func (c *NamenodeConnection) resolveConnection() error {
 	}
 
 	for _, host := range c.hostList {
-		if host.lastErrorAt.After(time.Now().Add(-backoffDuration)) {
+		if time.Since(host.lastErrorAt) < backoffDuration {
 			continue
 		}
 

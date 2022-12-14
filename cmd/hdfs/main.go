@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"os/user"
+	"strings"
 	"time"
 
 	"github.com/colinmarc/hdfs/v2"
@@ -31,12 +32,14 @@ Valid commands:
   cat SOURCE...
   head [-n LINES | -c BYTES] SOURCE...
   tail [-n LINES | -c BYTES] SOURCE...
+  test [-defsz] FILE...
   du [-sh] FILE...
   checksum FILE...
   get SOURCE [DEST]
   getmerge SOURCE DEST
   put SOURCE DEST
   df [-h]
+  truncate SIZE FILE
 `, os.Args[0])
 
 	lsOpts = getopt.New()
@@ -54,6 +57,13 @@ Valid commands:
 
 	mkdirOpts = getopt.New()
 	mkdirp    = mkdirOpts.Bool('p')
+
+	testOpts = getopt.New()
+	teste    = testOpts.Bool('e')
+	testf    = testOpts.Bool('f')
+	testd    = testOpts.Bool('d')
+	testz    = testOpts.Bool('z')
+	tests    = testOpts.Bool('s')
 
 	touchOpts = getopt.New()
 	touchc    = touchOpts.Bool('c')
@@ -93,11 +103,12 @@ func init() {
 	duOpts.SetUsage(printHelp)
 	getmergeOpts.SetUsage(printHelp)
 	dfOpts.SetUsage(printHelp)
+	testOpts.SetUsage(printHelp)
 }
 
 func main() {
 	if len(os.Args) < 2 {
-		printHelp()
+		fatalWithUsage()
 	}
 
 	command := os.Args[1]
@@ -146,6 +157,11 @@ func main() {
 	case "df":
 		dfOpts.Parse(argv)
 		df(*dfh)
+	case "test":
+		testOpts.Parse(argv)
+		test(testOpts.Args(), *teste, *testf, *testd, *testz, *tests)
+	case "truncate":
+		truncate(argv[1:])
 	// it's a seeeeecret command
 	case "complete":
 		complete(argv)
@@ -169,8 +185,13 @@ func fatal(msg ...interface{}) {
 }
 
 func fatalWithUsage(msg ...interface{}) {
-	msg = append(msg, "\n"+usage)
-	fatal(msg...)
+	if len(msg) > 0 {
+		fmt.Fprintln(os.Stderr, append(msg, "\n"+usage)...)
+	} else {
+		fmt.Fprintln(os.Stderr, usage)
+	}
+
+	os.Exit(2)
 }
 
 func getClient(namenode string) (*hdfs.Client, error) {
@@ -189,7 +210,7 @@ func getClient(namenode string) (*hdfs.Client, error) {
 
 	options := hdfs.ClientOptionsFromConf(conf)
 	if namenode != "" {
-		options.Addresses = []string{namenode}
+		options.Addresses = strings.Split(namenode, ",")
 	}
 
 	if options.Addresses == nil {

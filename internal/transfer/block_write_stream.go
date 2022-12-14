@@ -13,7 +13,7 @@ import (
 	"time"
 
 	hdfs "github.com/colinmarc/hdfs/v2/internal/protocol/hadoop_hdfs"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 const (
@@ -55,7 +55,7 @@ type blockWriteStream struct {
 	offset int64
 	closed bool
 
-	packets chan outboundPacket
+	packets chan int
 	seqno   int
 
 	ackError        error
@@ -91,7 +91,7 @@ func newBlockWriteStream(conn io.ReadWriter, offset int64) *blockWriteStream {
 		conn:       conn,
 		offset:     offset,
 		seqno:      1,
-		packets:    make(chan outboundPacket, maxPacketsInQueue),
+		packets:    make(chan int, maxPacketsInQueue),
 		acksDone:   make(chan struct{}),
 		heartbeats: make(chan struct{}),
 	}
@@ -163,7 +163,7 @@ func (s *blockWriteStream) finish() error {
 		checksums: []byte{},
 		data:      []byte{},
 	}
-	s.packets <- lastPacket
+	s.packets <- lastPacket.seqno
 
 	err := s.writePacket(lastPacket)
 	if err != nil {
@@ -191,7 +191,7 @@ func (s *blockWriteStream) flush(force bool) error {
 
 	for s.buf.Len() > 0 && (force || s.buf.Len() >= outboundPacketSize) {
 		packet := s.makePacket()
-		s.packets <- packet
+		s.packets <- packet.seqno
 		s.offset += int64(len(packet.data))
 		s.seqno++
 
@@ -225,12 +225,8 @@ func (s *blockWriteStream) makePacket() outboundPacket {
 		offset:    s.offset,
 		last:      false,
 		checksums: make([]byte, numChunks*4),
-		data:      make([]byte, packetLength),
+		data:      s.buf.Next(packetLength),
 	}
-
-	// TODO: we shouldn't actually need this extra copy. We should also be able
-	// to "reuse" packets.
-	io.ReadFull(&s.buf, packet.data)
 
 	// Fill in the checksum for each chunk of data.
 	for i := 0; i < numChunks; i++ {
@@ -285,7 +281,7 @@ Acks:
 			}
 		}
 
-		if seqno != p.seqno {
+		if seqno != p {
 			s.ackError = ErrInvalidSeqno
 			break Acks
 		}
@@ -294,7 +290,7 @@ Acks:
 	// Once we've seen an error, just keep reading packets off the channel (but
 	// not off the socket) until the writing thread figures it out. If we don't,
 	// the upstream thread could deadlock waiting for the channel to have space.
-	for _ = range s.packets {
+	for range s.packets {
 	}
 }
 

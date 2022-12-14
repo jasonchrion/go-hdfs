@@ -9,7 +9,7 @@ import (
 	"math"
 
 	hdfs "github.com/colinmarc/hdfs/v2/internal/protocol/hadoop_hdfs"
-	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/proto"
 )
 
 var errInvalidChecksum = errors.New("invalid checksum")
@@ -71,7 +71,7 @@ func (s *blockReadStream) Read(b []byte) (int, error) {
 
 		err = s.validateChecksum(s.chunk.Bytes())
 		if err != nil {
-			return 0, nil
+			return 0, err
 		}
 
 		s.chunkIndex++
