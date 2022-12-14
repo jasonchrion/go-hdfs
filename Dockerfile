@@ -1,8 +1,8 @@
 # build command: docker build --build-arg http_proxy=http://192.168.1.12:1080 --build-arg https_proxy=http://192.168.1.12:1080 -t jasonchrion/go-hdfs:1.0 .
 #
-# Build the manager binary
+# Build the hdfs binary
 FROM golang:1.17-alpine as builder
-
+ENV GOPROXY "https://goproxy.cn,direct"
 WORKDIR /workspace
 # Copy the Go Modules manifests
 COPY go.mod go.mod
@@ -17,7 +17,7 @@ COPY . .
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o hdfs ./cmd/hdfs
 
-# Use distroless as minimal base image to package the manager binary
+# Use distroless as minimal base image to package the hdfs binary
 # Refer to https://github.com/GoogleContainerTools/distroless for more details
 FROM gcr.io/distroless/static:nonroot
 WORKDIR /
