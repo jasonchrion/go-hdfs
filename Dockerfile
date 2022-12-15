@@ -1,5 +1,3 @@
-# build command: docker build --build-arg http_proxy=http://192.168.1.12:1080 --build-arg https_proxy=http://192.168.1.12:1080 -t jasonchrion/go-hdfs:1.0 .
-#
 # Build the hdfs binary
 FROM golang:1.17-alpine as builder
 ENV GOPROXY "https://goproxy.cn,direct"
@@ -17,11 +15,13 @@ COPY . .
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o hdfs ./cmd/hdfs
 
-# Use distroless as minimal base image to package the hdfs binary
-# Refer to https://github.com/GoogleContainerTools/distroless for more details
-FROM gcr.io/distroless/static:nonroot
-WORKDIR /
-COPY --from=builder /workspace/hdfs .
-USER 65532:65532
+FROM alpine:3.17.0
+ENV HADOOP_CONF_DIR=/etc/hadoop
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/' /etc/apk/repositories && \
+    apk update && apk add -U tzdata curl krb5 && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+    echo "Asia/shanghai" > /etc/timezone && mkdir -p /etc/hadoop
 
-ENTRYPOINT ["/hdfs"]
+WORKDIR /
+COPY --from=builder /workspace/hdfs /usr/bin/
+
+ENTRYPOINT ["hdfs"]
