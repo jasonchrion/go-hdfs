@@ -15,10 +15,9 @@ COPY . .
 # Build
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -a -o hdfs ./cmd/hdfs
 
-FROM alpine:3.17.0
+FROM alpine:3.17.3
 ENV HADOOP_CONF_DIR=/etc/hadoop
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/' /etc/apk/repositories && \
-    apk update && apk add -U tzdata curl krb5 && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
+RUN apk update && apk add -U tzdata curl krb5 && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/shanghai" > /etc/timezone && mkdir -p /etc/hadoop
 
 WORKDIR /
