@@ -15,7 +15,7 @@ COPY . .
 # Build
 RUN CGO_ENABLED=0 GOOS=linux go build -a -o hdfs ./cmd/hdfs
 
-FROM alpine:3.17.4
+FROM alpine:3.17.5
 ENV HADOOP_CONF_DIR=/etc/hadoop
 RUN apk update && apk add -U tzdata curl krb5 && cp /usr/share/zoneinfo/Asia/Shanghai /etc/localtime && \
     echo "Asia/shanghai" > /etc/timezone && mkdir -p /etc/hadoop
